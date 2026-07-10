@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Yan Coin K线图</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+    }
+    header {
+      padding: 20px 24px 8px;
+      border-bottom: 1px solid #21262d;
+    }
+    header h1 { font-size: 1.4rem; font-weight: 600; }
+    header p { color: #8b949e; font-size: 0.85rem; margin-top: 4px; }
+    #status {
+      padding: 40px 24px;
+      color: #8b949e;
+      text-align: center;
+    }
+    #status.error { color: #f85149; }
+    #chart { width: 100%; height: calc(100vh - 90px); display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Yan Coin (HKD)</h1>
+    <p>初始发行价 1.1 HKD · 回购价 1.0 HKD · 成交量由 Bitcoin 驱动回购模拟</p>
+  </header>
+  <div id="status">正在加载 Yan_stock.csv …</div>
+  <div id="chart"></div>
+
+  <script>
+    const CSV_URL = "Yan_stock.csv";
+
+    function parseCSVLine(line) {
+      const fields = [];
+      let cur = "", inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          inQuotes = !inQuotes;
+        } else if (ch === "," && !inQuotes) {
+          fields.push(cur);
+          cur = "";
+        } else {
+          cur += ch;
+        }
+      }
+      fields.push(cur);
+      return fields;
+    }
+
+    function parseCSV(text) {
+      const lines = text.replace(/^\uFEFF/, "").trim().split(/\r?\n/);
+      const headers = parseCSVLine(lines[0]);
+      return lines.slice(1).map((line) => {
+        const vals = parseCSVLine(line);
+        const row = {};
+        headers.forEach((h, i) => { row[h] = vals[i]; });
+        return row;
+      });
+    }
+
+    function rowsToChartData(rows) {
+      return {
+        dates: rows.map((r) => r["日期"]),
+        ohlc: rows.map((r) => [
+          parseFloat(r["开盘"]),
+          parseFloat(r["收盘"]),
+          parseFloat(r["低"]),
+          parseFloat(r["高"]),
+        ]),
+        volumes: rows.map((r) => parseInt(r["成交量"], 10)),
+        outstanding: rows.map((r) => parseInt(r["流通股本"], 10)),
+      };
+    }
+
+    function renderChart(DATA) {
+      document.getElementById("status").style.display = "none";
+      document.getElementById("chart").style.display = "block";
+
+      const chart = echarts.init(document.getElementById("chart"), "dark");
+      const upColor = "#26a69a";
+      const downColor = "#ef5350";
+
+      chart.setOption({
+        animation: false,
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "cross" },
+          formatter(params) {
+            const k = params.find((p) => p.seriesName === "K线");
+            const v = params.find((p) => p.seriesName === "成交量");
+            const s = params.find((p) => p.seriesName === "流通股本");
+            if (!k) return "";
+            const [o, c, l, h] = k.data;
+            const chg = o ? ((c - o) / o * 100).toFixed(2) : "0.00";
+            return [
+              `<b>${k.axisValue}</b>`,
+              `开: ${o}  收: ${c}  高: ${h}  低: ${l}`,
+              `涨跌: ${chg}%`,
+              v ? `成交量: ${v.data.toLocaleString()} 股` : "",
+              s ? `流通股本: ${s.data.toLocaleString()} 股` : "",
+            ].filter(Boolean).join("<br/>");
+          },
+        },
+        legend: { data: ["K线", "成交量", "流通股本"], top: 8 },
+        grid: [
+          { left: 60, right: 20, top: 50, height: "55%" },
+          { left: 60, right: 20, top: "72%", height: "14%" },
+          { left: 60, right: 20, top: "90%", height: "8%" },
+        ],
+        xAxis: [
+          { type: "category", data: DATA.dates, gridIndex: 0, axisLabel: { show: false } },
+          { type: "category", data: DATA.dates, gridIndex: 1, axisLabel: { show: false } },
+          { type: "category", data: DATA.dates, gridIndex: 2 },
+        ],
+        yAxis: [
+          { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: "#21262d" } } },
+          { scale: true, gridIndex: 1, splitLine: { show: false } },
+          { scale: true, gridIndex: 2, splitLine: { show: false } },
+        ],
+        dataZoom: [
+          { type: "inside", xAxisIndex: [0, 1, 2], start: 80, end: 100 },
+          { type: "slider", xAxisIndex: [0, 1, 2], bottom: 4, height: 20 },
+        ],
+        series: [
+          {
+            name: "K线",
+            type: "candlestick",
+            data: DATA.ohlc,
+            xAxisIndex: 0,
+            yAxisIndex: 0,
+            itemStyle: {
+              color: upColor, color0: downColor,
+              borderColor: upColor, borderColor0: downColor,
+            },
+            markLine: {
+              silent: true,
+              symbol: "none",
+              data: [
+                { yAxis: 1.1, lineStyle: { color: "#58a6ff", type: "dashed" }, label: { formatter: "发行价 1.1" } },
+                { yAxis: 1.0, lineStyle: { color: "#f0883e", type: "dashed" }, label: { formatter: "回购价 1.0" } },
+              ],
+            },
+          },
+          {
+            name: "成交量",
+            type: "bar",
+            data: DATA.volumes,
+            xAxisIndex: 1,
+            yAxisIndex: 1,
+            itemStyle: {
+              color(params) {
+                const [o, c] = DATA.ohlc[params.dataIndex];
+                return c >= o ? upColor : downColor;
+              },
+            },
+          },
+          {
+            name: "流通股本",
+            type: "line",
+            data: DATA.outstanding,
+            xAxisIndex: 2,
+            yAxisIndex: 2,
+            showSymbol: false,
+            lineStyle: { width: 1.5, color: "#a371f7" },
+            areaStyle: { color: "rgba(163,113,247,0.1)" },
+          },
+        ],
+      });
+
+      window.addEventListener("resize", () => chart.resize());
+    }
+
+    async function init() {
+      const status = document.getElementById("status");
+      try {
+        const res = await fetch(CSV_URL);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const rows = parseCSV(await res.text());
+        if (!rows.length) throw new Error("CSV 为空");
+        renderChart(rowsToChartData(rows));
+      } catch (err) {
+        status.className = "error";
+        status.textContent = `加载失败: ${err.message}。请确认 Yan_stock.csv 存在，或通过 HTTP 服务访问（GitHub Pages 上可正常使用）。`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
