@@ -237,8 +237,10 @@
       currentData = DATA;
       lastMobile = isMobile();
 
-      const upColor = "#26a69a";
-      const downColor = "#ef5350";
+      const kUpColor = "#26a69a";
+      const kDownColor = "#ef5350";
+      const volUpColor = "#58a6ff";
+      const volDownColor = "#388bfd";
       const mobile = isMobile();
 
       chart.setOption({
@@ -269,7 +271,15 @@
             return content ? tooltipHtml(content) : "";
           },
         },
-        legend: { data: ["K线", "成交量"], top: 6, left: "center", itemGap: 20 },
+        legend: {
+          data: [
+            { name: "K线", icon: "rect", itemStyle: { color: kUpColor, borderColor: kDownColor } },
+            { name: "成交量", icon: "rect", itemStyle: { color: volUpColor } },
+          ],
+          top: 6,
+          left: "center",
+          itemGap: 20,
+        },
         grid: [
           { left: mobile ? 48 : 64, right: mobile ? 12 : 20, top: 40, height: mobile ? "50%" : "52%" },
           { left: mobile ? 48 : 64, right: mobile ? 12 : 20, top: mobile ? "66%" : "68%", height: mobile ? "12%" : "10%" },
@@ -296,8 +306,8 @@
             xAxisIndex: 0,
             yAxisIndex: 0,
             itemStyle: {
-              color: upColor, color0: downColor,
-              borderColor: upColor, borderColor0: downColor,
+              color: kUpColor, color0: kDownColor,
+              borderColor: kUpColor, borderColor0: kDownColor,
             },
             markLine: {
               silent: true,
@@ -317,7 +327,7 @@
             itemStyle: {
               color(params) {
                 const [o, c] = DATA.ohlc[params.dataIndex];
-                return c >= o ? upColor : downColor;
+                return c >= o ? volUpColor : volDownColor;
               },
             },
           },
