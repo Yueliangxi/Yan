@@ -47,6 +47,39 @@
     }
     #status.error { color: #f85149; }
     #chart { width: 100%; height: calc(100vh - 130px); display: none; }
+    #info-panel {
+      display: none;
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      max-height: 42vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+      font-size: 12px;
+      line-height: 1.55;
+      z-index: 100;
+      box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
+    }
+    #info-panel .hint { color: #8b949e; }
+    #info-panel .date { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+    #info-panel .row { color: #c9d1d9; word-break: break-all; }
+    @media (max-width: 768px) {
+      header { padding: 12px 14px 10px; }
+      header h1 { font-size: 1.15rem; }
+      header p { font-size: 0.78rem; }
+      .controls { gap: 10px; margin-top: 10px; }
+      .control { flex: 1 1 100%; }
+      .control select { width: 100%; }
+      #info-panel { display: block; }
+      #chart {
+        height: calc(100vh - 200px - 42vh);
+        min-height: 220px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -72,6 +105,7 @@
   </header>
   <div id="status">正在加载数据…</div>
   <div id="chart"></div>
+  <div id="info-panel"><span class="hint">滑动图表查看数据</span></div>
 
   <script>
     const CSV_FILES = {
@@ -92,6 +126,50 @@
 
     let chart = null;
     let currentData = null;
+    let cachedRows = null;
+    let lastMobile = null;
+
+    function isMobile() {
+      return window.matchMedia("(max-width: 768px)").matches;
+    }
+
+    function buildTooltipContent(idx, dateLabel) {
+      if (!currentData || idx == null || idx < 0) return null;
+      const [o, c, l, h] = currentData.ohlc[idx];
+      const lines = [
+        { label: "开", value: o },
+        { label: "收", value: c },
+        { label: "高", value: h },
+        { label: "低", value: l },
+        { label: "涨跌幅", value: currentData.changes[idx] },
+        { label: "成交量", value: `${formatCompact(currentData.volumes[idx])} 股` },
+        { label: "总股本", value: `${formatCompact(currentData.totalShares[idx])} 股` },
+        { label: "交易收入", value: `${currentData.revenues[idx].toLocaleString()} HKD` },
+        { label: "总收入", value: `${currentData.totalRevenues[idx].toLocaleString()} HKD` },
+      ];
+      const issued = currentData.issued[idx];
+      if (issued > 0) {
+        lines.push({ label: "增发", value: `${issued.toLocaleString()} 股` });
+      }
+      return { date: dateLabel || currentData.dates[idx], lines };
+    }
+
+    function tooltipHtml(content) {
+      if (!content) return "";
+      const rows = content.lines.map(
+        (item) => `<div class="row">${item.label}: ${item.value}</div>`
+      ).join("");
+      return `<div class="date">${content.date}</div>${rows}`;
+    }
+
+    function updateInfoPanel(idx, dateLabel) {
+      const panel = document.getElementById("info-panel");
+      if (!isMobile()) return;
+      const content = buildTooltipContent(idx, dateLabel);
+      panel.innerHTML = content
+        ? tooltipHtml(content)
+        : '<span class="hint">滑动图表查看数据</span>';
+    }
 
     function parseCSVLine(line) {
       const fields = [];
@@ -157,40 +235,44 @@
       if (chart) chart.dispose();
       chart = echarts.init(chartEl, "dark");
       currentData = DATA;
+      lastMobile = isMobile();
 
       const upColor = "#26a69a";
       const downColor = "#ef5350";
+      const mobile = isMobile();
 
       chart.setOption({
         animation: false,
         tooltip: {
+          show: !mobile,
           trigger: "axis",
-          axisPointer: { type: "cross" },
+          confine: true,
+          className: "yan-tooltip",
+          extraCssText: "max-width:min(360px,92vw);white-space:normal;line-height:1.55;",
+          axisPointer: { type: mobile ? "line" : "cross" },
+          position(point, _params, _dom, _rect, size) {
+            const [x, y] = point;
+            const [vw, vh] = size.viewSize;
+            const [tw, th] = size.contentSize;
+            let left = x + 12;
+            let top = y - th - 12;
+            if (left + tw > vw - 8) left = vw - tw - 8;
+            if (left < 8) left = 8;
+            if (top < 8) top = y + 12;
+            if (top + th > vh - 8) top = vh - th - 8;
+            return [left, top];
+          },
           formatter(params) {
             const k = params.find((p) => p.seriesName === "K线");
             if (!k || !currentData) return "";
-            const idx = k.dataIndex;
-            const [o, c, l, h] = currentData.ohlc[idx];
-            const lines = [
-              `<b>${k.axisValue}</b>`,
-              `开: ${o}  收: ${c}  高: ${h}  低: ${l}`,
-              `涨跌幅: ${currentData.changes[idx]}`,
-              `成交量: ${formatCompact(currentData.volumes[idx])} 股`,
-              `总股本: ${formatCompact(currentData.totalShares[idx])} 股`,
-              `交易收入: ${currentData.revenues[idx].toLocaleString()} HKD`,
-              `总收入: ${currentData.totalRevenues[idx].toLocaleString()} HKD`,
-            ];
-            const issued = currentData.issued[idx];
-            if (issued > 0) {
-              lines.push(`增发: ${issued.toLocaleString()} 股`);
-            }
-            return lines.join("<br/>");
+            const content = buildTooltipContent(k.dataIndex, k.axisValue);
+            return content ? tooltipHtml(content) : "";
           },
         },
         legend: { data: ["K线", "成交量"], top: 6, left: "center", itemGap: 20 },
         grid: [
-          { left: 64, right: 20, top: 40, height: "52%" },
-          { left: 64, right: 20, top: "68%", height: "10%" },
+          { left: mobile ? 48 : 64, right: mobile ? 12 : 20, top: 40, height: mobile ? "50%" : "52%" },
+          { left: mobile ? 48 : 64, right: mobile ? 12 : 20, top: mobile ? "66%" : "68%", height: mobile ? "12%" : "10%" },
         ],
         xAxis: [
           { type: "category", data: DATA.dates, gridIndex: 0, axisLabel: { show: false }, axisTick: { show: false } },
@@ -203,8 +285,8 @@
             } },
         ],
         dataZoom: [
-          { type: "inside", xAxisIndex: [0, 1], start: 80, end: 100 },
-          { type: "slider", xAxisIndex: [0, 1], bottom: 12, height: 28 },
+          { type: "inside", xAxisIndex: [0, 1], start: mobile ? 90 : 80, end: 100 },
+          { type: "slider", xAxisIndex: [0, 1], bottom: mobile ? 8 : 12, height: mobile ? 22 : 28 },
         ],
         series: [
           {
@@ -241,6 +323,19 @@
           },
         ],
       });
+
+      chart.on("updateAxisPointer", (e) => {
+        if (!isMobile() || !currentData) return;
+        const axisInfo = e.axesInfo?.find((a) => a.axisDim === "x");
+        if (!axisInfo || axisInfo.value == null) return;
+        const idx = currentData.dates.indexOf(axisInfo.value);
+        if (idx >= 0) updateInfoPanel(idx, axisInfo.value);
+      });
+
+      if (mobile && currentData.dates.length) {
+        const lastIdx = currentData.dates.length - 1;
+        updateInfoPanel(lastIdx, currentData.dates[lastIdx]);
+      }
     }
 
     async function loadChart() {
@@ -263,6 +358,7 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = parseCSV(await res.text());
         if (!rows.length) throw new Error("CSV 为空");
+        cachedRows = rows;
         renderChart(rowsToChartData(rows));
       } catch (err) {
         status.className = "error";
@@ -272,7 +368,13 @@
 
     document.getElementById("source").addEventListener("change", loadChart);
     document.getElementById("method").addEventListener("change", loadChart);
-    window.addEventListener("resize", () => chart && chart.resize());
+    window.addEventListener("resize", () => {
+      const mobile = isMobile();
+      if (chart) chart.resize();
+      if (cachedRows && mobile !== lastMobile) {
+        renderChart(rowsToChartData(cachedRows));
+      }
+    });
 
     loadChart();
   </script>
