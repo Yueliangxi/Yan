@@ -126,6 +126,11 @@
     }
 
     function rowsToChartData(rows) {
+      let cumulativeRevenue = 0;
+      const totalRevenues = rows.map((r) => {
+        cumulativeRevenue += parseFloat(r["交易收入"]);
+        return cumulativeRevenue;
+      });
       return {
         dates: rows.map((r) => r["日期"]),
         ohlc: rows.map((r) => [
@@ -138,6 +143,7 @@
         changes: rows.map((r) => r["涨跌幅"]),
         totalShares: rows.map((r) => parseInt(r["总股本"], 10)),
         revenues: rows.map((r) => parseFloat(r["交易收入"])),
+        totalRevenues,
         issued: rows.map((r) => parseInt(r["增发股数"] || "0", 10)),
       };
     }
@@ -172,6 +178,7 @@
               `成交量: ${formatCompact(currentData.volumes[idx])} 股`,
               `总股本: ${formatCompact(currentData.totalShares[idx])} 股`,
               `交易收入: ${currentData.revenues[idx].toLocaleString()} HKD`,
+              `总收入: ${currentData.totalRevenues[idx].toLocaleString()} HKD`,
             ];
             const issued = currentData.issued[idx];
             if (issued > 0) {
