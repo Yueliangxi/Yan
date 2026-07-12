@@ -13,44 +13,94 @@
       color: #e6edf3;
     }
     header {
-      padding: 20px 24px 8px;
+      padding: 16px 24px 12px;
       border-bottom: 1px solid #21262d;
     }
     header h1 { font-size: 1.4rem; font-weight: 600; }
     header p { color: #8b949e; font-size: 0.85rem; margin-top: 4px; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-top: 12px;
+      align-items: center;
+    }
+    .control label {
+      font-size: 0.85rem;
+      color: #8b949e;
+      margin-right: 8px;
+    }
+    .control select {
+      background: #161b22;
+      color: #e6edf3;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .control select:hover { border-color: #58a6ff; }
     #status {
       padding: 40px 24px;
       color: #8b949e;
       text-align: center;
     }
     #status.error { color: #f85149; }
-    #chart { width: 100%; height: calc(100vh - 90px); display: none; }
+    #chart { width: 100%; height: calc(100vh - 130px); display: none; }
   </style>
 </head>
 <body>
   <header>
     <h1>Yan Coin (HKD)</h1>
-    <p>初始发行价 1.1 HKD · 回购价 1.0 HKD · 成交量由 Bitcoin 驱动回购模拟</p>
+    <p id="subtitle">初始发行价 1.1 HKD</p>
+    <div class="controls">
+      <div class="control">
+        <label for="source">来源</label>
+        <select id="source">
+          <option value="bitcoin">Bitcoin</option>
+          <option value="tencent">腾讯 (0700)</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="method">增发方法</label>
+        <select id="method">
+          <option value="volume">成交量 (360天)</option>
+          <option value="revenue">交易收入 (365天)</option>
+        </select>
+      </div>
+    </div>
   </header>
-  <div id="status">正在加载 Yan_stock.csv …</div>
+  <div id="status">正在加载数据…</div>
   <div id="chart"></div>
 
   <script>
-    const CSV_URL = "Yan_stock.csv";
+    const CSV_FILES = {
+      bitcoin: {
+        volume: "Yan_stock_btc.csv",
+        revenue: "Yan_stock_btc_revenue.csv",
+      },
+      tencent: {
+        volume: "Yan_stock_700.csv",
+        revenue: "Yan_stock_700_revenue.csv",
+      },
+    };
+
+    const SUBTITLES = {
+      bitcoin: { volume: "Bitcoin 成交量驱动 · 360天成交量增发", revenue: "Bitcoin 成交量驱动 · 365天交易收入增发" },
+      tencent: { volume: "腾讯 0700 成交量驱动 · 360天成交量增发", revenue: "腾讯 0700 成交量驱动 · 365天交易收入增发" },
+    };
+
+    let chart = null;
+    let currentData = null;
 
     function parseCSVLine(line) {
       const fields = [];
       let cur = "", inQuotes = false;
       for (let i = 0; i < line.length; i++) {
         const ch = line[i];
-        if (ch === '"') {
-          inQuotes = !inQuotes;
-        } else if (ch === "," && !inQuotes) {
-          fields.push(cur);
-          cur = "";
-        } else {
-          cur += ch;
-        }
+        if (ch === '"') { inQuotes = !inQuotes; }
+        else if (ch === "," && !inQuotes) { fields.push(cur); cur = ""; }
+        else { cur += ch; }
       }
       fields.push(cur);
       return fields;
@@ -67,6 +117,14 @@
       });
     }
 
+    function formatCompact(n) {
+      const abs = Math.abs(n);
+      if (abs >= 1e9) return (n / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
+      if (abs >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+      if (abs >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+      return String(n);
+    }
+
     function rowsToChartData(rows) {
       return {
         dates: rows.map((r) => r["日期"]),
@@ -77,15 +135,23 @@
           parseFloat(r["高"]),
         ]),
         volumes: rows.map((r) => parseInt(r["成交量"], 10)),
-        outstanding: rows.map((r) => parseInt(r["流通股本"], 10)),
+        changes: rows.map((r) => r["涨跌幅"]),
+        totalShares: rows.map((r) => parseInt(r["总股本"], 10)),
+        revenues: rows.map((r) => parseFloat(r["交易收入"])),
+        issued: rows.map((r) => parseInt(r["增发股数"] || "0", 10)),
       };
     }
 
     function renderChart(DATA) {
-      document.getElementById("status").style.display = "none";
-      document.getElementById("chart").style.display = "block";
+      const status = document.getElementById("status");
+      const chartEl = document.getElementById("chart");
+      status.style.display = "none";
+      chartEl.style.display = "block";
 
-      const chart = echarts.init(document.getElementById("chart"), "dark");
+      if (chart) chart.dispose();
+      chart = echarts.init(chartEl, "dark");
+      currentData = DATA;
+
       const upColor = "#26a69a";
       const downColor = "#ef5350";
 
@@ -96,39 +162,42 @@
           axisPointer: { type: "cross" },
           formatter(params) {
             const k = params.find((p) => p.seriesName === "K线");
-            const v = params.find((p) => p.seriesName === "成交量");
-            const s = params.find((p) => p.seriesName === "流通股本");
-            if (!k) return "";
-            const [o, c, l, h] = k.data;
-            const chg = o ? ((c - o) / o * 100).toFixed(2) : "0.00";
-            return [
+            if (!k || !currentData) return "";
+            const idx = k.dataIndex;
+            const [o, c, l, h] = currentData.ohlc[idx];
+            const lines = [
               `<b>${k.axisValue}</b>`,
               `开: ${o}  收: ${c}  高: ${h}  低: ${l}`,
-              `涨跌: ${chg}%`,
-              v ? `成交量: ${v.data.toLocaleString()} 股` : "",
-              s ? `流通股本: ${s.data.toLocaleString()} 股` : "",
-            ].filter(Boolean).join("<br/>");
+              `涨跌幅: ${currentData.changes[idx]}`,
+              `成交量: ${formatCompact(currentData.volumes[idx])} 股`,
+              `总股本: ${formatCompact(currentData.totalShares[idx])} 股`,
+              `交易收入: ${currentData.revenues[idx].toLocaleString()} HKD`,
+            ];
+            const issued = currentData.issued[idx];
+            if (issued > 0) {
+              lines.push(`增发: ${issued.toLocaleString()} 股`);
+            }
+            return lines.join("<br/>");
           },
         },
-        legend: { data: ["K线", "成交量", "流通股本"], top: 8 },
+        legend: { data: ["K线", "成交量"], top: 6, left: "center", itemGap: 20 },
         grid: [
-          { left: 60, right: 20, top: 50, height: "55%" },
-          { left: 60, right: 20, top: "72%", height: "14%" },
-          { left: 60, right: 20, top: "90%", height: "8%" },
+          { left: 64, right: 20, top: 40, height: "52%" },
+          { left: 64, right: 20, top: "68%", height: "10%" },
         ],
         xAxis: [
-          { type: "category", data: DATA.dates, gridIndex: 0, axisLabel: { show: false } },
-          { type: "category", data: DATA.dates, gridIndex: 1, axisLabel: { show: false } },
-          { type: "category", data: DATA.dates, gridIndex: 2 },
+          { type: "category", data: DATA.dates, gridIndex: 0, axisLabel: { show: false }, axisTick: { show: false } },
+          { type: "category", data: DATA.dates, gridIndex: 1, axisLabel: { fontSize: 11, color: "#8b949e" } },
         ],
         yAxis: [
-          { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: "#21262d" } } },
-          { scale: true, gridIndex: 1, splitLine: { show: false } },
-          { scale: true, gridIndex: 2, splitLine: { show: false } },
+          { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: "#21262d" } }, axisLabel: { fontSize: 11 } },
+          { scale: true, gridIndex: 1, splitLine: { show: false }, axisLabel: {
+              fontSize: 11, formatter: (v) => formatCompact(v),
+            } },
         ],
         dataZoom: [
-          { type: "inside", xAxisIndex: [0, 1, 2], start: 80, end: 100 },
-          { type: "slider", xAxisIndex: [0, 1, 2], bottom: 4, height: 20 },
+          { type: "inside", xAxisIndex: [0, 1], start: 80, end: 100 },
+          { type: "slider", xAxisIndex: [0, 1], bottom: 12, height: 28 },
         ],
         series: [
           {
@@ -144,9 +213,9 @@
             markLine: {
               silent: true,
               symbol: "none",
+              label: { fontSize: 11, position: "insideStartTop" },
               data: [
-                { yAxis: 1.1, lineStyle: { color: "#58a6ff", type: "dashed" }, label: { formatter: "发行价 1.1" } },
-                { yAxis: 1.0, lineStyle: { color: "#f0883e", type: "dashed" }, label: { formatter: "回购价 1.0" } },
+                { yAxis: 1.1, lineStyle: { color: "#58a6ff", type: "dashed" }, label: { formatter: "发行价 1.1", color: "#58a6ff" } },
               ],
             },
           },
@@ -163,37 +232,42 @@
               },
             },
           },
-          {
-            name: "流通股本",
-            type: "line",
-            data: DATA.outstanding,
-            xAxisIndex: 2,
-            yAxisIndex: 2,
-            showSymbol: false,
-            lineStyle: { width: 1.5, color: "#a371f7" },
-            areaStyle: { color: "rgba(163,113,247,0.1)" },
-          },
         ],
       });
-
-      window.addEventListener("resize", () => chart.resize());
     }
 
-    async function init() {
+    async function loadChart() {
+      const source = document.getElementById("source").value;
+      const method = document.getElementById("method").value;
+      const csvUrl = CSV_FILES[source][method];
       const status = document.getElementById("status");
+      const chartEl = document.getElementById("chart");
+
+      document.getElementById("subtitle").textContent =
+        `初始发行价 1.1 HKD · ${SUBTITLES[source][method]}`;
+
+      status.className = "";
+      status.style.display = "block";
+      status.textContent = `正在加载 ${csvUrl} …`;
+      chartEl.style.display = "none";
+
       try {
-        const res = await fetch(CSV_URL);
+        const res = await fetch(csvUrl);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = parseCSV(await res.text());
         if (!rows.length) throw new Error("CSV 为空");
         renderChart(rowsToChartData(rows));
       } catch (err) {
         status.className = "error";
-        status.textContent = `加载失败: ${err.message}。请确认 Yan_stock.csv 存在，或通过 HTTP 服务访问（GitHub Pages 上可正常使用）。`;
+        status.textContent = `加载失败: ${err.message}。请先运行 python Yan_coin.py 生成数据。`;
       }
     }
 
-    init();
+    document.getElementById("source").addEventListener("change", loadChart);
+    document.getElementById("method").addEventListener("change", loadChart);
+    window.addEventListener("resize", () => chart && chart.resize());
+
+    loadChart();
   </script>
 </body>
 </html>
