@@ -53,7 +53,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      max-height: 42vh;
+      max-height: 38vh;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       background: #161b22;
@@ -63,6 +63,7 @@
       line-height: 1.55;
       z-index: 100;
       box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
+      pointer-events: none;
     }
     #info-panel .hint { color: #8b949e; }
     #info-panel .date { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
@@ -76,9 +77,12 @@
       .control select { width: 100%; }
       #info-panel { display: block; }
       #chart {
-        height: calc(100vh - 200px - 42vh);
-        min-height: 220px;
+        height: calc(100vh - 180px - 38vh);
+        min-height: 240px;
       }
+    }
+    .yan-tooltip-mobile-hidden {
+      display: none !important;
     }
   </style>
 </head>
@@ -105,7 +109,7 @@
   </header>
   <div id="status">正在加载数据…</div>
   <div id="chart"></div>
-  <div id="info-panel"><span class="hint">滑动图表查看数据</span></div>
+  <div id="info-panel"><span class="hint">左右滑动浏览 · 点击图表查看某日数据</span></div>
 
   <script>
     const CSV_FILES = {
@@ -168,7 +172,41 @@
       const content = buildTooltipContent(idx, dateLabel);
       panel.innerHTML = content
         ? tooltipHtml(content)
-        : '<span class="hint">滑动图表查看数据</span>';
+        : '<span class="hint">左右滑动浏览 · 点击图表查看某日数据</span>';
+    }
+
+    function getVisibleEndIndex() {
+      if (!chart || !currentData) return null;
+      const dzList = chart.getOption().dataZoom || [];
+      const dz = dzList.find((z) => z.type === "inside") || dzList[0];
+      if (!dz) return currentData.dates.length - 1;
+      const end = dz.end ?? 100;
+      const len = currentData.dates.length;
+      return Math.min(len - 1, Math.max(0, Math.ceil((end / 100) * len) - 1));
+    }
+
+    function pickDataIndexFromEvent(e) {
+      if (!chart || !currentData) return null;
+      const point = [e.offsetX, e.offsetY];
+      if (!chart.containPixel({ gridIndex: 0 }, point)) return null;
+      const raw = chart.convertFromPixel({ seriesIndex: 0 }, point)[0];
+      if (raw == null || Number.isNaN(raw)) return null;
+      const idx = Math.round(raw);
+      if (idx < 0 || idx >= currentData.dates.length) return null;
+      return idx;
+    }
+
+    function handleChartTap(e) {
+      if (!isMobile()) return;
+      const idx = pickDataIndexFromEvent(e);
+      if (idx != null) updateInfoPanel(idx, currentData.dates[idx]);
+    }
+
+    function bindChartPointerEvents() {
+      if (!chart) return;
+      const zr = chart.getZr();
+      zr.off("click", handleChartTap);
+      zr.on("click", handleChartTap);
     }
 
     function parseCSVLine(line) {
@@ -237,22 +275,26 @@
       currentData = DATA;
       lastMobile = isMobile();
 
-      const kUpColor = "#26a69a";
-      const kDownColor = "#ef5350";
-      const volUpColor = "#58a6ff";
-      const volDownColor = "#388bfd";
+      const kColor = "#26a69a";
+      const volColor = "#58a6ff";
       const mobile = isMobile();
 
       chart.setOption({
         animation: false,
         tooltip: {
-          show: !mobile,
+          show: true,
           trigger: "axis",
           confine: true,
-          className: "yan-tooltip",
-          extraCssText: "max-width:min(360px,92vw);white-space:normal;line-height:1.55;",
-          axisPointer: { type: mobile ? "line" : "cross" },
+          className: mobile ? "yan-tooltip-mobile-hidden" : "yan-tooltip",
+          extraCssText: mobile
+            ? ""
+            : "max-width:min(360px,92vw);white-space:normal;line-height:1.55;",
+          axisPointer: {
+            type: mobile ? "line" : "cross",
+            snap: true,
+          },
           position(point, _params, _dom, _rect, size) {
+            if (mobile) return [-9999, -9999];
             const [x, y] = point;
             const [vw, vh] = size.viewSize;
             const [tw, th] = size.contentSize;
@@ -265,6 +307,7 @@
             return [left, top];
           },
           formatter(params) {
+            if (mobile) return "";
             const k = params.find((p) => p.seriesName === "K线");
             if (!k || !currentData) return "";
             const content = buildTooltipContent(k.dataIndex, k.axisValue);
@@ -273,8 +316,8 @@
         },
         legend: {
           data: [
-            { name: "K线", icon: "rect", itemStyle: { color: kUpColor, borderColor: kDownColor } },
-            { name: "成交量", icon: "rect", itemStyle: { color: volUpColor } },
+            { name: "K线", icon: "rect", itemStyle: { color: kColor } },
+            { name: "成交量", icon: "rect", itemStyle: { color: volColor } },
           ],
           top: 6,
           left: "center",
@@ -295,7 +338,15 @@
             } },
         ],
         dataZoom: [
-          { type: "inside", xAxisIndex: [0, 1], start: mobile ? 90 : 80, end: 100 },
+          {
+            type: "inside",
+            xAxisIndex: [0, 1],
+            start: mobile ? 90 : 80,
+            end: 100,
+            zoomOnMouseWheel: false,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+          },
           { type: "slider", xAxisIndex: [0, 1], bottom: mobile ? 8 : 12, height: mobile ? 22 : 28 },
         ],
         series: [
@@ -306,8 +357,8 @@
             xAxisIndex: 0,
             yAxisIndex: 0,
             itemStyle: {
-              color: kUpColor, color0: kDownColor,
-              borderColor: kUpColor, borderColor0: kDownColor,
+              color: kColor, color0: kColor,
+              borderColor: kColor, borderColor0: kColor,
             },
             markLine: {
               silent: true,
@@ -324,12 +375,7 @@
             data: DATA.volumes,
             xAxisIndex: 1,
             yAxisIndex: 1,
-            itemStyle: {
-              color(params) {
-                const [o, c] = DATA.ohlc[params.dataIndex];
-                return c >= o ? volUpColor : volDownColor;
-              },
-            },
+            itemStyle: { color: volColor },
           },
         ],
       });
@@ -338,9 +384,22 @@
         if (!isMobile() || !currentData) return;
         const axisInfo = e.axesInfo?.find((a) => a.axisDim === "x");
         if (!axisInfo || axisInfo.value == null) return;
-        const idx = currentData.dates.indexOf(axisInfo.value);
-        if (idx >= 0) updateInfoPanel(idx, axisInfo.value);
+        let idx = axisInfo.value;
+        if (typeof idx === "string") {
+          idx = currentData.dates.indexOf(idx);
+        } else {
+          idx = Math.round(idx);
+        }
+        if (idx >= 0) updateInfoPanel(idx, currentData.dates[idx]);
       });
+
+      chart.on("dataZoom", () => {
+        if (!isMobile() || !currentData) return;
+        const idx = getVisibleEndIndex();
+        if (idx != null) updateInfoPanel(idx, currentData.dates[idx]);
+      });
+
+      bindChartPointerEvents();
 
       if (mobile && currentData.dates.length) {
         const lastIdx = currentData.dates.length - 1;
