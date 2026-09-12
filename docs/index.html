@@ -127,17 +127,17 @@
     <p id="subtitle">初始发行价 1.1 HKD</p>
     <div class="controls">
       <div class="control">
-        <label for="source">来源</label>
-        <select id="source">
-          <option value="bitcoin">Bitcoin</option>
-          <option value="tencent" selected>腾讯 (0700)</option>
+        <label for="profile">发行参数</label>
+        <select id="profile">
+          <option value="10m_360">1000万 · 360交易日</option>
+          <option value="3m_300">300万 · 300交易日</option>
         </select>
       </div>
       <div class="control">
-        <label for="method">增发方法</label>
+        <label for="method">增发因子</label>
         <select id="method">
-          <option value="volume">成交量 (360天)</option>
-          <option value="revenue">交易收入 (360天)</option>
+          <option value="volume">成交量</option>
+          <option value="revenue">交易收入</option>
         </select>
       </div>
     </div>
@@ -149,24 +149,29 @@
 
   <script>
     const CSV_FILES = {
-      bitcoin: {
-        volume: "Yan_stock_btc.csv",
-        revenue: "Yan_stock_btc_revenue.csv",
-      },
-      tencent: {
+      "10m_360": {
         volume: "Yan_stock_700.csv",
         revenue: "Yan_stock_700_revenue.csv",
+      },
+      "3m_300": {
+        volume: "Yan_stock_700_3m_300.csv",
+        revenue: "Yan_stock_700_3m_300_revenue.csv",
       },
     };
 
     const SUBTITLES = {
-      bitcoin: { volume: "Bitcoin 成交量驱动 · 360天成交量增发", revenue: "Bitcoin 成交量驱动 · 360天交易收入增发" },
-      tencent: { volume: "腾讯 0700 驱动 · 360天成交量增发 · 2026-07-10后为循环模拟", revenue: "腾讯 0700 驱动 · 360天交易收入增发 · 2026-07-10后为循环模拟" },
+      "10m_360": {
+        volume: "腾讯 0700 · 1000万初始/基础发行 · 360交易日成交量",
+        revenue: "腾讯 0700 · 1000万初始/基础发行 · 360交易日交易收入",
+      },
+      "3m_300": {
+        volume: "腾讯 0700 · 300万初始/基础发行 · 300交易日成交量",
+        revenue: "腾讯 0700 · 300万初始/基础发行 · 300交易日交易收入",
+      },
     };
 
     let chart = null;
     let currentData = null;
-    let currentSource = "bitcoin";
     let cachedRows = null;
     let lastMobile = null;
 
@@ -188,7 +193,7 @@
         { label: "交易收入", value: `${currentData.revenues[idx].toLocaleString()} HKD` },
         { label: "总收入", value: `${currentData.totalRevenues[idx].toLocaleString()} HKD` },
       ];
-      if (currentSource === "tencent" && currentData.dates[idx] > "2026-07-10") {
+      if (currentData.dates[idx] > "2026-07-10") {
         lines.unshift({ label: "数据", value: "腾讯最近五年循环模拟" });
       }
       const issued = currentData.issued[idx];
@@ -309,7 +314,7 @@
       }));
     }
 
-    function renderAnnualGrowth(rows, source) {
+    function renderAnnualGrowth(rows) {
       const container = document.getElementById("annual-growth");
       const annual = calculateAnnualGrowth(rows);
       const cards = annual.map((item) => {
@@ -317,11 +322,9 @@
           ? "positive"
           : item.rate < -0.0001 ? "negative" : "neutral";
         const sign = item.rate > 0 ? "+" : "";
-        const projectionLabel = source === "tencent"
-          ? item.year === "2026"
-            ? " · 实际+模拟"
-            : Number(item.year) >= 2027 ? " · 模拟" : ""
-          : "";
+        const projectionLabel = item.year === "2026"
+          ? " · 实际+模拟"
+          : Number(item.year) >= 2027 ? " · 模拟" : "";
         return `
           <div class="annual-card ${trend}" title="${item.startDate} 至 ${item.endDate}">
             <div class="year">${item.year}${projectionLabel}</div>
@@ -329,11 +332,8 @@
             <div class="prices">${item.startPrice.toFixed(4)} → ${item.endPrice.toFixed(4)}</div>
           </div>`;
       }).join("");
-      const projectionNote = source === "tencent"
-        ? " · 2026-07-10后循环最近五年腾讯数据"
-        : "";
       container.innerHTML = `
-        <div class="annual-heading">年度价格增长（年内首个交易日开盘 → 最后交易日收盘）${projectionNote}</div>
+        <div class="annual-heading">年度价格增长（年内首个交易日开盘 → 最后交易日收盘） · 2026-07-10后循环最近五年腾讯数据</div>
         <div class="annual-list">${cards}</div>`;
       container.style.display = "block";
     }
@@ -505,14 +505,14 @@
     }
 
     async function loadChart() {
-      const source = document.getElementById("source").value;
+      const profile = document.getElementById("profile").value;
       const method = document.getElementById("method").value;
-      const csvUrl = CSV_FILES[source][method];
+      const csvUrl = CSV_FILES[profile][method];
       const status = document.getElementById("status");
       const chartEl = document.getElementById("chart");
 
       document.getElementById("subtitle").textContent =
-        `初始发行价 1.1 HKD · ${SUBTITLES[source][method]}`;
+        `初始发行价 1.1 HKD · ${SUBTITLES[profile][method]} · 2026-07-10后为循环模拟`;
 
       status.className = "";
       status.style.display = "block";
@@ -524,9 +524,8 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = parseCSV(await res.text());
         if (!rows.length) throw new Error("CSV 为空");
-        currentSource = source;
         cachedRows = rows;
-        renderAnnualGrowth(rows, source);
+        renderAnnualGrowth(rows);
         renderChart(rowsToChartData(rows));
       } catch (err) {
         status.className = "error";
@@ -534,7 +533,7 @@
       }
     }
 
-    document.getElementById("source").addEventListener("change", loadChart);
+    document.getElementById("profile").addEventListener("change", loadChart);
     document.getElementById("method").addEventListener("change", loadChart);
     window.addEventListener("resize", () => {
       const mobile = isMobile();
