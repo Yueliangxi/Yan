@@ -127,10 +127,11 @@
     <p id="subtitle">初始发行价 1.1 HKD</p>
     <div class="controls">
       <div class="control">
-        <label for="profile">发行参数</label>
+        <label for="profile">公式 / 参数</label>
         <select id="profile">
-          <option value="10m_360">1000万 · 360交易日</option>
-          <option value="3m_300">300万 · 300交易日</option>
+          <option value="10m_360">原公式 · 1000万 · 360日</option>
+          <option value="3m_300">原公式 · 300万 · 300日</option>
+          <option value="3m_360_60">新公式 · 300万 · 360日减60日</option>
         </select>
       </div>
       <div class="control">
@@ -176,11 +177,22 @@
           revenue: "Yan_stock_700_3m_300_growth5_revenue.csv",
         },
       },
+      "3m_360_60": {
+        growth10: {
+          volume: "Yan_stock_700_3m_360_60.csv",
+          revenue: "Yan_stock_700_3m_360_60_revenue.csv",
+        },
+        growth5: {
+          volume: "Yan_stock_700_3m_360_60_growth5.csv",
+          revenue: "Yan_stock_700_3m_360_60_growth5_revenue.csv",
+        },
+      },
     };
 
     const PROFILE_LABELS = {
       "10m_360": "1000万初始/基础发行 · 360交易日",
       "3m_300": "300万初始/基础发行 · 300交易日",
+      "3m_360_60": "新公式 · 300万初始/最低发行 · 五次方×360日 − 三次方×60日",
     };
     const GROWTH_LABELS = {
       growth10: "成交量每年增加10个百分点",
@@ -397,11 +409,11 @@
       const volColor = "#58a6ff";
       const mobile = isMobile();
 
-      chart.setOption({
-        animation: false,
-        tooltip: {
+    chart.setOption({
+      animation: false,
+      tooltip: {
           show: true,
-          trigger: "axis",
+        trigger: "axis",
           confine: true,
           className: mobile ? "yan-tooltip-mobile-hidden" : "yan-tooltip",
           extraCssText: mobile
@@ -424,7 +436,7 @@
             if (top + th > vh - 8) top = vh - th - 8;
             return [left, top];
           },
-          formatter(params) {
+        formatter(params) {
             if (mobile) return "";
             const k = params.find((p) => p.seriesName === "K线");
             if (!k || !currentData) return "";
@@ -441,21 +453,21 @@
           left: "center",
           itemGap: 20,
         },
-        grid: [
+      grid: [
           { left: mobile ? 48 : 64, right: mobile ? 12 : 20, top: 40, height: mobile ? "50%" : "52%" },
           { left: mobile ? 48 : 64, right: mobile ? 12 : 20, top: mobile ? "66%" : "68%", height: mobile ? "12%" : "10%" },
-        ],
-        xAxis: [
+      ],
+      xAxis: [
           { type: "category", data: DATA.dates, gridIndex: 0, axisLabel: { show: false }, axisTick: { show: false } },
           { type: "category", data: DATA.dates, gridIndex: 1, axisLabel: { fontSize: 11, color: "#8b949e" } },
-        ],
-        yAxis: [
+      ],
+      yAxis: [
           { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: "#21262d" } }, axisLabel: { fontSize: 11 } },
           { scale: true, gridIndex: 1, splitLine: { show: false }, axisLabel: {
               fontSize: 11, formatter: (v) => formatCompact(v),
             } },
-        ],
-        dataZoom: [
+      ],
+      dataZoom: [
           {
             type: "inside",
             xAxisIndex: [0, 1],
@@ -466,33 +478,33 @@
             moveOnMouseWheel: false,
           },
           { type: "slider", xAxisIndex: [0, 1], bottom: mobile ? 8 : 12, height: mobile ? 22 : 28 },
-        ],
-        series: [
-          {
-            name: "K线",
-            type: "candlestick",
-            data: DATA.ohlc,
-            xAxisIndex: 0,
-            yAxisIndex: 0,
+      ],
+      series: [
+        {
+          name: "K线",
+          type: "candlestick",
+          data: DATA.ohlc,
+          xAxisIndex: 0,
+          yAxisIndex: 0,
             itemStyle: {
               color: kColor, color0: kColor,
               borderColor: kColor, borderColor0: kColor,
             },
-            markLine: {
-              silent: true,
-              symbol: "none",
+          markLine: {
+            silent: true,
+            symbol: "none",
               label: { fontSize: 11, position: "insideStartTop" },
-              data: [
+            data: [
                 { yAxis: 1.1, lineStyle: { color: "#58a6ff", type: "dashed" }, label: { formatter: "发行价 1.1", color: "#58a6ff" } },
-              ],
-            },
+            ],
           },
-          {
-            name: "成交量",
-            type: "bar",
-            data: DATA.volumes,
-            xAxisIndex: 1,
-            yAxisIndex: 1,
+        },
+        {
+          name: "成交量",
+          type: "bar",
+          data: DATA.volumes,
+          xAxisIndex: 1,
+          yAxisIndex: 1,
             itemStyle: { color: volColor },
           },
         ],
