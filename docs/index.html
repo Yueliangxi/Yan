@@ -161,11 +161,12 @@
 
     const SUBTITLES = {
       bitcoin: { volume: "Bitcoin 成交量驱动 · 360天成交量增发", revenue: "Bitcoin 成交量驱动 · 360天交易收入增发" },
-      tencent: { volume: "腾讯 0700 成交量驱动 · 360天成交量增发", revenue: "腾讯 0700 成交量驱动 · 360天交易收入增发" },
+      tencent: { volume: "腾讯 0700 驱动 · 360天成交量增发 · 2026-07-10后为循环模拟", revenue: "腾讯 0700 驱动 · 360天交易收入增发 · 2026-07-10后为循环模拟" },
     };
 
     let chart = null;
     let currentData = null;
+    let currentSource = "bitcoin";
     let cachedRows = null;
     let lastMobile = null;
 
@@ -187,6 +188,9 @@
         { label: "交易收入", value: `${currentData.revenues[idx].toLocaleString()} HKD` },
         { label: "总收入", value: `${currentData.totalRevenues[idx].toLocaleString()} HKD` },
       ];
+      if (currentSource === "tencent" && currentData.dates[idx] > "2026-07-10") {
+        lines.unshift({ label: "数据", value: "腾讯最近五年循环模拟" });
+      }
       const issued = currentData.issued[idx];
       if (issued > 0) {
         lines.push({ label: "增发", value: `${issued.toLocaleString()} 股` });
@@ -305,7 +309,7 @@
       }));
     }
 
-    function renderAnnualGrowth(rows) {
+    function renderAnnualGrowth(rows, source) {
       const container = document.getElementById("annual-growth");
       const annual = calculateAnnualGrowth(rows);
       const cards = annual.map((item) => {
@@ -313,15 +317,23 @@
           ? "positive"
           : item.rate < -0.0001 ? "negative" : "neutral";
         const sign = item.rate > 0 ? "+" : "";
+        const projectionLabel = source === "tencent"
+          ? item.year === "2026"
+            ? " · 实际+模拟"
+            : Number(item.year) >= 2027 ? " · 模拟" : ""
+          : "";
         return `
           <div class="annual-card ${trend}" title="${item.startDate} 至 ${item.endDate}">
-            <div class="year">${item.year}</div>
+            <div class="year">${item.year}${projectionLabel}</div>
             <div class="rate">${sign}${item.rate.toFixed(2)}%</div>
             <div class="prices">${item.startPrice.toFixed(4)} → ${item.endPrice.toFixed(4)}</div>
           </div>`;
       }).join("");
+      const projectionNote = source === "tencent"
+        ? " · 2026-07-10后循环最近五年腾讯数据"
+        : "";
       container.innerHTML = `
-        <div class="annual-heading">年度价格增长（年内首个交易日开盘 → 最后交易日收盘）</div>
+        <div class="annual-heading">年度价格增长（年内首个交易日开盘 → 最后交易日收盘）${projectionNote}</div>
         <div class="annual-list">${cards}</div>`;
       container.style.display = "block";
     }
@@ -512,8 +524,9 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const rows = parseCSV(await res.text());
         if (!rows.length) throw new Error("CSV 为空");
+        currentSource = source;
         cachedRows = rows;
-        renderAnnualGrowth(rows);
+        renderAnnualGrowth(rows, source);
         renderChart(rowsToChartData(rows));
       } catch (err) {
         status.className = "error";
