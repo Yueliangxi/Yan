@@ -134,6 +134,13 @@
         </select>
       </div>
       <div class="control">
+        <label for="growth">成交量年增</label>
+        <select id="growth">
+          <option value="growth10">每年增加10个百分点</option>
+          <option value="growth5">每年增加5个百分点</option>
+        </select>
+      </div>
+      <div class="control">
         <label for="method">增发因子</label>
         <select id="method">
           <option value="volume">成交量</option>
@@ -150,24 +157,38 @@
   <script>
     const CSV_FILES = {
       "10m_360": {
-        volume: "Yan_stock_700.csv",
-        revenue: "Yan_stock_700_revenue.csv",
+        growth10: {
+          volume: "Yan_stock_700.csv",
+          revenue: "Yan_stock_700_revenue.csv",
+        },
+        growth5: {
+          volume: "Yan_stock_700_growth5.csv",
+          revenue: "Yan_stock_700_growth5_revenue.csv",
+        },
       },
       "3m_300": {
-        volume: "Yan_stock_700_3m_300.csv",
-        revenue: "Yan_stock_700_3m_300_revenue.csv",
+        growth10: {
+          volume: "Yan_stock_700_3m_300.csv",
+          revenue: "Yan_stock_700_3m_300_revenue.csv",
+        },
+        growth5: {
+          volume: "Yan_stock_700_3m_300_growth5.csv",
+          revenue: "Yan_stock_700_3m_300_growth5_revenue.csv",
+        },
       },
     };
 
-    const SUBTITLES = {
-      "10m_360": {
-        volume: "腾讯 0700 · 1000万初始/基础发行 · 360交易日成交量",
-        revenue: "腾讯 0700 · 1000万初始/基础发行 · 360交易日交易收入",
-      },
-      "3m_300": {
-        volume: "腾讯 0700 · 300万初始/基础发行 · 300交易日成交量",
-        revenue: "腾讯 0700 · 300万初始/基础发行 · 300交易日交易收入",
-      },
+    const PROFILE_LABELS = {
+      "10m_360": "1000万初始/基础发行 · 360交易日",
+      "3m_300": "300万初始/基础发行 · 300交易日",
+    };
+    const GROWTH_LABELS = {
+      growth10: "成交量每年增加10个百分点",
+      growth5: "成交量每年增加5个百分点",
+    };
+    const METHOD_LABELS = {
+      volume: "成交量增发",
+      revenue: "交易收入增发",
     };
 
     let chart = null;
@@ -506,13 +527,14 @@
 
     async function loadChart() {
       const profile = document.getElementById("profile").value;
+      const growth = document.getElementById("growth").value;
       const method = document.getElementById("method").value;
-      const csvUrl = CSV_FILES[profile][method];
+      const csvUrl = CSV_FILES[profile][growth][method];
       const status = document.getElementById("status");
       const chartEl = document.getElementById("chart");
 
       document.getElementById("subtitle").textContent =
-        `初始发行价 1.1 HKD · ${SUBTITLES[profile][method]} · 2026-07-10后为循环模拟`;
+        `腾讯 0700 · ${PROFILE_LABELS[profile]} · ${GROWTH_LABELS[growth]} · ${METHOD_LABELS[method]} · 2026-07-10后为循环模拟`;
 
       status.className = "";
       status.style.display = "block";
@@ -534,6 +556,7 @@
     }
 
     document.getElementById("profile").addEventListener("change", loadChart);
+    document.getElementById("growth").addEventListener("change", loadChart);
     document.getElementById("method").addEventListener("change", loadChart);
     window.addEventListener("resize", () => {
       const mobile = isMobile();
