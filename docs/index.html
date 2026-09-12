@@ -46,7 +46,39 @@
       text-align: center;
     }
     #status.error { color: #f85149; }
-    #chart { width: 100%; height: calc(100vh - 130px); display: none; }
+    #annual-growth {
+      display: none;
+      padding: 10px 24px 12px;
+      border-bottom: 1px solid #21262d;
+      background: #0d1117;
+    }
+    #annual-growth .annual-heading {
+      color: #8b949e;
+      font-size: 0.78rem;
+      margin-bottom: 8px;
+    }
+    #annual-growth .annual-list {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: thin;
+    }
+    #annual-growth .annual-card {
+      flex: 0 0 auto;
+      min-width: 112px;
+      padding: 7px 10px;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      background: #161b22;
+    }
+    .annual-card .year { color: #c9d1d9; font-size: 0.75rem; }
+    .annual-card .rate { margin-top: 2px; font-size: 1rem; font-weight: 600; }
+    .annual-card .prices { margin-top: 2px; color: #8b949e; font-size: 0.68rem; }
+    .annual-card.positive .rate { color: #26a69a; }
+    .annual-card.negative .rate { color: #f85149; }
+    .annual-card.neutral .rate { color: #8b949e; }
+    #chart { width: 100%; height: calc(100vh - 235px); min-height: 360px; display: none; }
     #info-panel {
       display: none;
       position: fixed;
@@ -75,9 +107,12 @@
       .controls { gap: 10px; margin-top: 10px; }
       .control { flex: 1 1 100%; }
       .control select { width: 100%; }
+      #annual-growth { padding: 8px 14px 10px; }
+      #annual-growth .annual-heading { margin-bottom: 6px; }
+      #annual-growth .annual-card { min-width: 104px; padding: 6px 8px; }
       #info-panel { display: block; }
       #chart {
-        height: calc(100vh - 180px - 38vh);
+        height: calc(100vh - 270px - 38vh);
         min-height: 240px;
       }
     }
@@ -107,6 +142,7 @@
       </div>
     </div>
   </header>
+  <section id="annual-growth" aria-label="年度价格增长"></section>
   <div id="status">正在加载数据…</div>
   <div id="chart"></div>
   <div id="info-panel"><span class="hint">左右滑动浏览 · 点击图表查看某日数据</span></div>
@@ -239,6 +275,55 @@
       if (abs >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
       if (abs >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
       return String(n);
+    }
+
+    function calculateAnnualGrowth(rows) {
+      const years = new Map();
+      rows.forEach((row) => {
+        const year = row["日期"].slice(0, 4);
+        const open = parseFloat(row["开盘"]);
+        const close = parseFloat(row["收盘"]);
+        if (!years.has(year)) {
+          years.set(year, {
+            year,
+            startPrice: open,
+            endPrice: close,
+            startDate: row["日期"],
+            endDate: row["日期"],
+          });
+        } else {
+          const item = years.get(year);
+          item.endPrice = close;
+          item.endDate = row["日期"];
+        }
+      });
+      return Array.from(years.values()).map((item) => ({
+        ...item,
+        rate: item.startPrice > 0
+          ? ((item.endPrice / item.startPrice) - 1) * 100
+          : 0,
+      }));
+    }
+
+    function renderAnnualGrowth(rows) {
+      const container = document.getElementById("annual-growth");
+      const annual = calculateAnnualGrowth(rows);
+      const cards = annual.map((item) => {
+        const trend = item.rate > 0.0001
+          ? "positive"
+          : item.rate < -0.0001 ? "negative" : "neutral";
+        const sign = item.rate > 0 ? "+" : "";
+        return `
+          <div class="annual-card ${trend}" title="${item.startDate} 至 ${item.endDate}">
+            <div class="year">${item.year}</div>
+            <div class="rate">${sign}${item.rate.toFixed(2)}%</div>
+            <div class="prices">${item.startPrice.toFixed(4)} → ${item.endPrice.toFixed(4)}</div>
+          </div>`;
+      }).join("");
+      container.innerHTML = `
+        <div class="annual-heading">年度价格增长（年内首个交易日开盘 → 最后交易日收盘）</div>
+        <div class="annual-list">${cards}</div>`;
+      container.style.display = "block";
     }
 
     function rowsToChartData(rows) {
@@ -428,6 +513,7 @@
         const rows = parseCSV(await res.text());
         if (!rows.length) throw new Error("CSV 为空");
         cachedRows = rows;
+        renderAnnualGrowth(rows);
         renderChart(rowsToChartData(rows));
       } catch (err) {
         status.className = "error";
